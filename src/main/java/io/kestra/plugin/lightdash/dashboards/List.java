@@ -56,13 +56,13 @@ public class List extends AbstractLightdashTask implements RunnableTask<List.Out
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+        var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
             .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for List dashboards task."));
 
         var dashboards = requestResults(
             runContext,
             "GET",
-            "projects/" + renderedProjectUuid + "/dashboards",
+            "projects/" + rProjectUuid + "/dashboards",
             null,
             new TypeReference<java.util.List<DashboardSummary>>() {}
         );
@@ -70,7 +70,7 @@ public class List extends AbstractLightdashTask implements RunnableTask<List.Out
         runContext.logger().info(
             "Retrieved {} dashboard(s) for Lightdash project '{}'.",
             dashboards != null ? dashboards.size() : 0,
-            renderedProjectUuid
+            rProjectUuid
         );
 
         return Output.builder()

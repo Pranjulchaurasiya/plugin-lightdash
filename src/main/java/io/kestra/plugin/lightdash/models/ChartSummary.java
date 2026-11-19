@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
+import java.time.Instant;
+
 @Getter
 @Builder
 @ToString
@@ -44,5 +46,5 @@ public class ChartSummary {
     @Schema(description = """
         Timestamp when the chart was last updated.
         """)
-    private String updatedAt;
+    private Instant updatedAt;
 }

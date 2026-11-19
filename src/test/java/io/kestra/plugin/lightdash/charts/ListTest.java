@@ -71,9 +71,11 @@ class ListTest {
         assertThat(output.getCharts().get(0).getUuid(), is("chart-uuid-1"));
         assertThat(output.getCharts().get(0).getName(), is("Monthly Active Users"));
         assertThat(output.getCharts().get(0).getChartType(), is("line"));
+        assertThat(output.getCharts().get(0).getUpdatedAt(), is(java.time.Instant.parse("2026-11-16T12:00:00.000Z")));
         assertThat(output.getCharts().get(1).getUuid(), is("chart-uuid-2"));
         assertThat(output.getCharts().get(1).getName(), is("ARR by Tier"));
         assertThat(output.getCharts().get(1).getChartType(), is("bar"));
+        assertThat(output.getCharts().get(1).getUpdatedAt(), is(java.time.Instant.parse("2026-11-16T12:30:00.000Z")));
     }
 
     @Test

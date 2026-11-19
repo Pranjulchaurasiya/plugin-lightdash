@@ -10,7 +10,7 @@ The Lightdash plugin enables orchestration of business intelligence workflows di
 
 - **Projects**: Discover organization projects and refresh dbt models / semantic layer caches after upstream transformations.
 - **Charts**: Run saved chart queries with flexible output handling (`FETCH`, `FETCH_ONE`, or streaming to Kestra storage via `STORE`).
-- **Dashboards**: List and export dashboard definitions as JSON, or watch for dashboard modifications using an automated polling trigger with KV Store watermark isolation.
+- **Dashboards**: List and get dashboard definitions, or watch for dashboard modifications using an automated polling trigger with KV Store watermark isolation.
 
 ---
 
@@ -36,5 +36,5 @@ Generate a Personal Access Token in your Lightdash web UI:
 
 ### 3. Dashboards
 - `io.kestra.plugin.lightdash.dashboards.List`: Lists all dashboards in a project.
-- `io.kestra.plugin.lightdash.dashboards.Export`: Exports the full dashboard JSON definition, including tiles, filters, and spaces.
+- `io.kestra.plugin.lightdash.dashboards.Get`: Retrieves the full dashboard JSON definition, including tiles, filters, and spaces.
 - `io.kestra.plugin.lightdash.dashboards.Trigger`: Polling trigger that detects created or modified dashboards using namespace KV store watermarks.

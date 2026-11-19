@@ -1,13 +1,7 @@
 package io.kestra.plugin.lightdash.dashboards;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.kestra.core.http.HttpRequest;
-import io.kestra.core.http.HttpResponse;
-import io.kestra.core.http.client.HttpClient;
-import io.kestra.core.http.client.configurations.HttpConfiguration;
-import io.kestra.core.http.client.configurations.TimeoutConfiguration;
 import io.kestra.core.models.annotations.Example;
 import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -19,18 +13,20 @@ import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.JacksonMapper;
 import io.kestra.core.storages.kv.KVMetadata;
 import io.kestra.core.storages.kv.KVValueAndMetadata;
+import io.kestra.plugin.lightdash.LightdashClient;
+import io.kestra.plugin.lightdash.LightdashConnection;
 import io.kestra.plugin.lightdash.models.DashboardSummary;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -65,12 +61,12 @@ import java.util.Optional;
                 tasks:
                   - id: notify
                     type: io.kestra.plugin.core.log.Log
-                    message: "Dashboard updated: {{ trigger.dashboard.name }} (UUID: {{ trigger.dashboard.uuid }})"
+                    message: "Dashboard updated: {{ trigger.dashboards[0].name }} (UUID: {{ trigger.dashboards[0].uuid }})"
                 """
         )
     }
 )
-public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output> {
+public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output>, LightdashConnection {
 
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
 
@@ -96,9 +92,18 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     private Property<String> apiToken;
 
     @Schema(
+        title = "HTTP client timeout",
+        description = """
+            The timeout duration for HTTP requests made to the Lightdash API."""
+    )
+    @PluginProperty(group = "advanced")
+    @Builder.Default
+    private Property<Duration> timeout = Property.ofValue(Duration.ofSeconds(30));
+
+    @Schema(
         title = "Project UUID",
         description = """
-            The unique identifier of the Lightdash project to monitor."""
+            The UUID of the Lightdash project to monitor for dashboard updates."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -107,11 +112,11 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     @Schema(
         title = "Polling interval",
         description = """
-            Interval between trigger evaluations. Defaults to 1 minute."""
+            The interval between consecutive polls for dashboard modifications."""
     )
-    @PluginProperty(group = "execution")
+    @NotNull
     @Builder.Default
-    private final Duration interval = Duration.ofMinutes(1);
+    private Duration interval = Duration.ofMinutes(1);
 
     @Override
     public Duration getInterval() {
@@ -119,54 +124,46 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     }
 
     @Override
+    public Property<String> getUrl() {
+        return this.url;
+    }
+
+    @Override
+    public Property<String> getApiToken() {
+        return this.apiToken;
+    }
+
+    @Override
+    public Property<Duration> getTimeout() {
+        return this.timeout;
+    }
+
+    @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
         var runContext = conditionContext.getRunContext();
         var logger = runContext.logger();
 
-        var rawUrl = runContext.render(this.url).as(String.class)
-            .orElse("https://app.lightdash.cloud").trim();
-        while (rawUrl.endsWith("/")) {
-            rawUrl = rawUrl.substring(0, rawUrl.length() - 1);
-        }
-        if (!rawUrl.endsWith("/api/v1") && !rawUrl.endsWith("/api/v2")) {
-            rawUrl = rawUrl + "/api/v1";
-        }
-        var baseUri = URI.create(rawUrl + "/");
-
-        var token = runContext.render(this.apiToken).as(String.class)
-            .orElseThrow(() -> new IllegalArgumentException("`apiToken` is required for Trigger."));
-        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+        var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
             .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Trigger."));
 
-        var requestUri = baseUri.resolve("projects/" + renderedProjectUuid + "/dashboards");
+        List<DashboardSummary> dashboards;
+        try {
+            var responseBody = LightdashClient.execute(
+                runContext,
+                this.url,
+                this.apiToken,
+                this.timeout,
+                "GET",
+                "projects/" + rProjectUuid + "/dashboards",
+                null
+            );
 
-        var timeoutConfig = TimeoutConfiguration.builder()
-            .connectTimeout(Property.ofValue(Duration.ofSeconds(30)))
-            .readIdleTimeout(Property.ofValue(Duration.ofSeconds(30)))
-            .build();
-
-        var httpConfig = HttpConfiguration.builder()
-            .timeout(timeoutConfig)
-            .build();
-
-        var request = HttpRequest.builder()
-            .uri(requestUri)
-            .method("GET")
-            .addHeader("Authorization", "ApiKey " + token)
-            .addHeader("Accept", "application/json")
-            .build();
-
-        java.util.List<DashboardSummary> dashboards;
-        try (var client = new HttpClient(runContext, httpConfig)) {
-            var response = client.request(request, String.class);
-            if (response.getStatus().getCode() >= 400) {
-                logger.warn("Lightdash trigger request failed with status {}: {}", response.getStatus().getCode(), response.getBody());
-                return Optional.empty();
-            }
-
-            var root = MAPPER.readTree(response.getBody());
+            var root = MAPPER.readTree(responseBody);
             var resultsNode = root.has("results") ? root.get("results") : root;
-            dashboards = MAPPER.convertValue(resultsNode, new TypeReference<java.util.List<DashboardSummary>>() {});
+            dashboards = MAPPER.convertValue(resultsNode, new TypeReference<List<DashboardSummary>>() {});
+        } catch (Exception e) {
+            logger.warn("Lightdash trigger poll failed for project '{}': {}", rProjectUuid, e.getMessage());
+            return Optional.empty();
         }
 
         if (dashboards == null || dashboards.isEmpty()) {
@@ -176,7 +173,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         var kvStore = runContext.namespaceKv(context.getNamespace());
         var flowId = context.getFlowId() != null ? context.getFlowId() : "default";
         var triggerId = this.getId() != null ? this.getId() : "lightdash";
-        var stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_" + triggerId + "_" + sha256Hex(renderedProjectUuid);
+        var stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_" + triggerId + "_" + sha256Hex(rProjectUuid);
 
         Instant watermark = null;
         try {
@@ -190,17 +187,13 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             logger.warn("Failed to parse Lightdash trigger watermark for key '{}': {}", stateKey, e.getMessage());
         }
 
-        // Find the latest updatedAt among current dashboards
         var maxCurrent = dashboards.stream()
             .map(DashboardSummary::getUpdatedAt)
-            .filter(Objects::nonNull)
-            .map(this::parseInstantSafe)
             .filter(Objects::nonNull)
             .max(Comparator.naturalOrder())
             .orElse(Instant.now());
 
         if (watermark == null) {
-            // First run: initialize watermark to the current latest timestamp
             kvStore.put(
                 stateKey,
                 new KVValueAndMetadata(
@@ -208,24 +201,21 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
                     maxCurrent.toString()
                 )
             );
-            logger.info("Initialized Lightdash trigger watermark for project '{}' at {}", renderedProjectUuid, maxCurrent);
+            logger.info("Initialized Lightdash trigger watermark for project '{}' at {}", rProjectUuid, maxCurrent);
             return Optional.empty();
         }
 
         final var currentWatermark = watermark;
         var newlyUpdated = dashboards.stream()
-            .filter(d -> {
-                Instant upd = parseInstantSafe(d.getUpdatedAt());
-                return upd != null && upd.isAfter(currentWatermark);
-            })
-            .sorted(Comparator.comparing(d -> parseInstantSafe(d.getUpdatedAt())))
+            .filter(d -> d.getUpdatedAt() != null && d.getUpdatedAt().isAfter(currentWatermark))
+            .sorted(Comparator.comparing(DashboardSummary::getUpdatedAt))
             .toList();
 
         if (newlyUpdated.isEmpty()) {
             return Optional.empty();
         }
 
-        var newWatermark = parseInstantSafe(newlyUpdated.get(newlyUpdated.size() - 1).getUpdatedAt());
+        var newWatermark = newlyUpdated.get(newlyUpdated.size() - 1).getUpdatedAt();
         if (newWatermark != null && newWatermark.isAfter(currentWatermark)) {
             kvStore.put(
                 stateKey,
@@ -236,29 +226,13 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             );
         }
 
-        var primary = newlyUpdated.get(0);
         var output = Output.builder()
-            .dashboardUuid(primary.getUuid())
-            .dashboardName(primary.getName())
-            .updatedAt(primary.getUpdatedAt())
-            .dashboard(primary)
             .dashboards(newlyUpdated)
             .count(newlyUpdated.size())
             .build();
 
-        logger.info("Lightdash trigger firing: {} modified dashboard(s) found in project '{}'", newlyUpdated.size(), renderedProjectUuid);
+        logger.info("Lightdash trigger firing: {} modified dashboard(s) found in project '{}'", newlyUpdated.size(), rProjectUuid);
         return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));
-    }
-
-    private Instant parseInstantSafe(String timestamp) {
-        if (timestamp == null || timestamp.isBlank()) {
-            return null;
-        }
-        try {
-            return Instant.parse(timestamp);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     private static String sha256Hex(String input) {
@@ -280,38 +254,10 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     public static class Output implements io.kestra.core.models.tasks.Output {
         @Schema(
             description = """
-                The UUID of the primary modified dashboard.
-                """
-        )
-        private String dashboardUuid;
-
-        @Schema(
-            description = """
-                The name of the primary modified dashboard.
-                """
-        )
-        private String dashboardName;
-
-        @Schema(
-            description = """
-                The update timestamp of the primary modified dashboard.
-                """
-        )
-        private String updatedAt;
-
-        @Schema(
-            description = """
-                The primary or first modified dashboard.
-                """
-        )
-        private DashboardSummary dashboard;
-
-        @Schema(
-            description = """
                 The list of all modified dashboards detected in this polling window.
                 """
         )
-        private java.util.List<DashboardSummary> dashboards;
+        private List<DashboardSummary> dashboards;
 
         @Schema(
             description = """

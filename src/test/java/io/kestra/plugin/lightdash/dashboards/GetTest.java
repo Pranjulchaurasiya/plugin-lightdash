@@ -18,12 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 @WireMockTest
-class ExportTest {
+class GetTest {
 
     @Inject
     private RunContextFactory runContextFactory;
 
-    private static final String EXPORT_JSON = """
+    private static final String GET_JSON = """
         {
           "status": "ok",
           "results": {
@@ -47,16 +47,16 @@ class ExportTest {
         """;
 
     @Test
-    void exportDashboardSuccess(WireMockRuntimeInfo wm) throws Exception {
+    void getDashboardSuccess(WireMockRuntimeInfo wm) throws Exception {
         stubFor(
             get(urlEqualTo("/api/v2/projects/proj-123/dashboards/dash-export-1"))
                 .withHeader("Authorization", equalTo("ApiKey test-api-token"))
-                .willReturn(okJson(EXPORT_JSON))
+                .willReturn(okJson(GET_JSON))
         );
 
         var runContext = runContextFactory.of(Map.of());
 
-        var task = Export.builder()
+        var task = Get.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-api-token"))
             .projectUuid(Property.ofValue("proj-123"))
@@ -80,7 +80,7 @@ class ExportTest {
     void missingProjectUuidThrowsIllegalArgumentException() {
         var runContext = runContextFactory.of(Map.of());
 
-        var task = Export.builder()
+        var task = Get.builder()
             .url(Property.ofValue("http://localhost:8080"))
             .apiToken(Property.ofValue("test-token"))
             .dashboardUuid(Property.ofValue("dash-1"))
@@ -94,7 +94,7 @@ class ExportTest {
     void missingDashboardUuidThrowsIllegalArgumentException() {
         var runContext = runContextFactory.of(Map.of());
 
-        var task = Export.builder()
+        var task = Get.builder()
             .url(Property.ofValue("http://localhost:8080"))
             .apiToken(Property.ofValue("test-token"))
             .projectUuid(Property.ofValue("proj-1"))

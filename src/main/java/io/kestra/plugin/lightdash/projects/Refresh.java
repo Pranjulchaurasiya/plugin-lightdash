@@ -92,18 +92,18 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+        var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
             .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Refresh task."));
         var shouldWait = runContext.render(this.wait).as(Boolean.class).orElse(true);
         var interval = runContext.render(this.pollInterval).as(Duration.class).orElse(Duration.ofSeconds(2));
         var maxTimeout = runContext.render(this.maxWait).as(Duration.class).orElse(Duration.ofMinutes(10));
 
-        runContext.logger().info("Triggering refresh for Lightdash project '{}'", renderedProjectUuid);
+        runContext.logger().info("Triggering refresh for Lightdash project '{}'", rProjectUuid);
 
         var initResult = requestResults(
             runContext,
             "POST",
-            "projects/" + renderedProjectUuid + "/refresh",
+            "projects/" + rProjectUuid + "/refresh",
             Map.of(),
             new TypeReference<Map<String, String>>() {}
         );

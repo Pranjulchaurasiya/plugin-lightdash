@@ -68,8 +68,10 @@ class ListTest {
         assertThat(output.getDashboards(), hasSize(2));
         assertThat(output.getDashboards().get(0).getUuid(), is("dash-1"));
         assertThat(output.getDashboards().get(0).getName(), is("Executive KPI Overview"));
+        assertThat(output.getDashboards().get(0).getUpdatedAt(), is(java.time.Instant.parse("2026-11-16T11:00:00.000Z")));
         assertThat(output.getDashboards().get(1).getUuid(), is("dash-2"));
         assertThat(output.getDashboards().get(1).getName(), is("Sales Performance"));
+        assertThat(output.getDashboards().get(1).getUpdatedAt(), is(java.time.Instant.parse("2026-11-16T11:30:00.000Z")));
     }
 
     @Test

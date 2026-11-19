@@ -96,8 +96,8 @@ class TriggerTest {
         assertThat(execution.getTrigger(), notNullValue());
         assertThat(execution.getTrigger().getVariables(), notNullValue());
         assertThat(execution.getTrigger().getVariables().get("count"), is(1));
-        assertThat(execution.getTrigger().getVariables().get("dashboardName"), is("Updated Dashboard"));
-        assertThat(execution.getTrigger().getVariables().get("dashboardUuid"), is("dash-2"));
-        assertThat(execution.getTrigger().getVariables().get("updatedAt"), is("2026-11-16T10:30:00.000Z"));
+        @SuppressWarnings("unchecked")
+        var dashboards = (java.util.List<?>) execution.getTrigger().getVariables().get("dashboards");
+        assertThat(dashboards, hasSize(1));
     }
 }

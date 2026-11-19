@@ -21,22 +21,22 @@ import java.util.Map;
 @Getter
 @NoArgsConstructor
 @Schema(
-    title = "Export a Lightdash dashboard definition",
+    title = "Get a Lightdash dashboard definition",
     description = """
         Retrieves the complete configuration, tiles, filters, and metadata for a specific Lightdash dashboard."""
 )
 @Plugin(
     examples = {
         @Example(
-            title = "Export a Lightdash dashboard",
+            title = "Get a Lightdash dashboard definition",
             full = true,
             code = """
-                id: export_lightdash_dashboard
+                id: get_lightdash_dashboard
                 namespace: company.analytics
 
                 tasks:
-                  - id: export_dashboard
-                    type: io.kestra.plugin.lightdash.dashboards.Export
+                  - id: get_dashboard
+                    type: io.kestra.plugin.lightdash.dashboards.Get
                     url: "https://app.lightdash.cloud"
                     apiToken: "{{ secret('LIGHTDASH_API_TOKEN') }}"
                     projectUuid: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
@@ -45,7 +45,7 @@ import java.util.Map;
         )
     }
 )
-public class Export extends AbstractLightdashTask implements RunnableTask<Export.Output> {
+public class Get extends AbstractLightdashTask implements RunnableTask<Get.Output> {
 
     @Schema(
         title = "Project UUID",
@@ -59,7 +59,7 @@ public class Export extends AbstractLightdashTask implements RunnableTask<Export
     @Schema(
         title = "Dashboard UUID or Slug",
         description = """
-            The UUID or URL slug of the dashboard to export."""
+            The UUID or URL slug of the dashboard to retrieve."""
     )
     @NotNull
     @PluginProperty(group = "main")
@@ -67,21 +67,21 @@ public class Export extends AbstractLightdashTask implements RunnableTask<Export
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
-            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Export dashboard task."));
-        var renderedDashboardUuid = runContext.render(this.dashboardUuid).as(String.class)
-            .orElseThrow(() -> new IllegalArgumentException("`dashboardUuid` is required for Export dashboard task."));
+        var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Get dashboard task."));
+        var rDashboardUuid = runContext.render(this.dashboardUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`dashboardUuid` is required for Get dashboard task."));
 
         runContext.logger().info(
-            "Exporting dashboard '{}' from Lightdash project '{}'",
-            renderedDashboardUuid,
-            renderedProjectUuid
+            "Fetching dashboard '{}' from Lightdash project '{}'",
+            rDashboardUuid,
+            rProjectUuid
         );
 
         var dashboard = requestResults(
             runContext,
             "GET",
-            "api/v2/projects/" + renderedProjectUuid + "/dashboards/" + renderedDashboardUuid,
+            "api/v2/projects/" + rProjectUuid + "/dashboards/" + rDashboardUuid,
             null,
             new TypeReference<Map<String, Object>>() {}
         );
