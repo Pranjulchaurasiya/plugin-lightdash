@@ -92,14 +92,15 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedProjectUuid = runContext.render(this.projectUuid).as(String.class).orElseThrow();
-        Boolean shouldWait = runContext.render(this.wait).as(Boolean.class).orElse(true);
-        Duration interval = runContext.render(this.pollInterval).as(Duration.class).orElse(Duration.ofSeconds(2));
-        Duration maxTimeout = runContext.render(this.maxWait).as(Duration.class).orElse(Duration.ofMinutes(10));
+        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Refresh task."));
+        var shouldWait = runContext.render(this.wait).as(Boolean.class).orElse(true);
+        var interval = runContext.render(this.pollInterval).as(Duration.class).orElse(Duration.ofSeconds(2));
+        var maxTimeout = runContext.render(this.maxWait).as(Duration.class).orElse(Duration.ofMinutes(10));
 
         runContext.logger().info("Triggering refresh for Lightdash project '{}'", renderedProjectUuid);
 
-        Map<String, String> initResult = requestResults(
+        var initResult = requestResults(
             runContext,
             "POST",
             "projects/" + renderedProjectUuid + "/refresh",
@@ -107,7 +108,7 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
             new TypeReference<Map<String, String>>() {}
         );
 
-        String jobUuid = initResult != null ? initResult.get("jobUuid") : null;
+        var jobUuid = initResult != null ? initResult.get("jobUuid") : null;
         if (jobUuid == null || jobUuid.isBlank()) {
             throw new IllegalStateException("Lightdash refresh request did not return a valid jobUuid: " + initResult);
         }
@@ -121,7 +122,7 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
                 .build();
         }
 
-        Instant deadline = Instant.now().plus(maxTimeout);
+        var deadline = Instant.now().plus(maxTimeout);
         JobStatus finalStatus = null;
 
         while (Instant.now().isBefore(deadline)) {
@@ -135,7 +136,7 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
                 JobStatus.class
             );
 
-            String status = finalStatus != null ? finalStatus.getStatus() : null;
+            var status = finalStatus != null ? finalStatus.getStatus() : null;
             runContext.logger().debug("Polling Lightdash job '{}', current status: '{}'", jobUuid, status);
 
             if ("completed".equalsIgnoreCase(status)) {

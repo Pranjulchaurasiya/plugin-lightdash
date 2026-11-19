@@ -4,7 +4,6 @@ import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
@@ -14,6 +13,7 @@ import java.util.Map;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 @WireMockTest
@@ -54,15 +54,15 @@ class ListTest {
                 .willReturn(okJson(DASHBOARDS_JSON))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        List task = List.builder()
+        var task = List.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-api-token"))
             .projectUuid(Property.ofValue("proj-123"))
             .build();
 
-        List.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output, notNullValue());
         assertThat(output.getDashboards(), hasSize(2));
@@ -70,5 +70,18 @@ class ListTest {
         assertThat(output.getDashboards().get(0).getName(), is("Executive KPI Overview"));
         assertThat(output.getDashboards().get(1).getUuid(), is("dash-2"));
         assertThat(output.getDashboards().get(1).getName(), is("Sales Performance"));
+    }
+
+    @Test
+    void missingProjectUuidThrowsIllegalArgumentException() {
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = List.builder()
+            .url(Property.ofValue("http://localhost:8080"))
+            .apiToken(Property.ofValue("test-token"))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("`projectUuid` is required"));
     }
 }

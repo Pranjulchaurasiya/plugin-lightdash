@@ -48,14 +48,14 @@ class ListTest {
                 .willReturn(okJson(PROJECTS_JSON))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        List task = List.builder()
+        var task = List.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-api-token"))
             .build();
 
-        List.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output, notNullValue());
         assertThat(output.getProjects(), hasSize(2));
@@ -63,5 +63,71 @@ class ListTest {
         assertThat(output.getProjects().get(0).getName(), is("Jaffle Shop Analytics"));
         assertThat(output.getProjects().get(1).getProjectUuid(), is("proj-uuid-2"));
         assertThat(output.getProjects().get(1).getName(), is("Marketing Attribution"));
+    }
+
+    @Test
+    void listProjectsUnauthorizedThrowsException(WireMockRuntimeInfo wm) {
+        stubFor(
+            get(urlEqualTo("/api/v1/org/projects"))
+                .willReturn(aResponse().withStatus(401).withBody("{\"status\":\"error\",\"message\":\"Unauthorized\"}"))
+        );
+
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = List.builder()
+            .url(Property.ofValue(wm.getHttpBaseUrl()))
+            .apiToken(Property.ofValue("invalid-token"))
+            .build();
+
+        var ex = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("401 Unauthorized"));
+    }
+
+    @Test
+    void listProjectsNotFoundThrowsException(WireMockRuntimeInfo wm) {
+        stubFor(
+            get(urlEqualTo("/api/v1/org/projects"))
+                .willReturn(aResponse().withStatus(404).withBody("{\"status\":\"error\",\"message\":\"Not Found\"}"))
+        );
+
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = List.builder()
+            .url(Property.ofValue(wm.getHttpBaseUrl()))
+            .apiToken(Property.ofValue("test-token"))
+            .build();
+
+        var ex = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("404 Not Found"));
+    }
+
+    @Test
+    void listProjectsWithPebbleRendering(WireMockRuntimeInfo wm) throws Exception {
+        stubFor(
+            get(urlEqualTo("/api/v1/org/projects"))
+                .withHeader("Authorization", equalTo("ApiKey rendered-token"))
+                .willReturn(okJson(PROJECTS_JSON))
+        );
+
+        var runContext = runContextFactory.of(Map.of("myUrl", wm.getHttpBaseUrl(), "myToken", "rendered-token"));
+
+        var task = List.builder()
+            .url(Property.ofExpression("{{ myUrl }}"))
+            .apiToken(Property.ofExpression("{{ myToken }}"))
+            .build();
+
+        var output = task.run(runContext);
+        assertThat(output.getProjects(), hasSize(2));
+    }
+
+    @Test
+    void missingApiTokenThrowsIllegalArgumentException(WireMockRuntimeInfo wm) {
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = List.builder()
+            .url(Property.ofValue(wm.getHttpBaseUrl()))
+            .build();
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
     }
 }

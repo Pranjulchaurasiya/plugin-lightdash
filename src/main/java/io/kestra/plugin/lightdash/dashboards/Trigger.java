@@ -120,33 +120,36 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
     @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
-        RunContext runContext = conditionContext.getRunContext();
+        var runContext = conditionContext.getRunContext();
         var logger = runContext.logger();
 
-        String rawUrl = runContext.render(this.url).as(String.class).orElse("https://app.lightdash.cloud").trim();
+        var rawUrl = runContext.render(this.url).as(String.class)
+            .orElse("https://app.lightdash.cloud").trim();
         while (rawUrl.endsWith("/")) {
             rawUrl = rawUrl.substring(0, rawUrl.length() - 1);
         }
         if (!rawUrl.endsWith("/api/v1") && !rawUrl.endsWith("/api/v2")) {
             rawUrl = rawUrl + "/api/v1";
         }
-        URI baseUri = URI.create(rawUrl + "/");
+        var baseUri = URI.create(rawUrl + "/");
 
-        String token = runContext.render(this.apiToken).as(String.class).orElseThrow();
-        String renderedProjectUuid = runContext.render(this.projectUuid).as(String.class).orElseThrow();
+        var token = runContext.render(this.apiToken).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`apiToken` is required for Trigger."));
+        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Trigger."));
 
-        URI requestUri = baseUri.resolve("projects/" + renderedProjectUuid + "/dashboards");
+        var requestUri = baseUri.resolve("projects/" + renderedProjectUuid + "/dashboards");
 
-        TimeoutConfiguration timeoutConfig = TimeoutConfiguration.builder()
+        var timeoutConfig = TimeoutConfiguration.builder()
             .connectTimeout(Property.ofValue(Duration.ofSeconds(30)))
             .readIdleTimeout(Property.ofValue(Duration.ofSeconds(30)))
             .build();
 
-        HttpConfiguration httpConfig = HttpConfiguration.builder()
+        var httpConfig = HttpConfiguration.builder()
             .timeout(timeoutConfig)
             .build();
 
-        HttpRequest request = HttpRequest.builder()
+        var request = HttpRequest.builder()
             .uri(requestUri)
             .method("GET")
             .addHeader("Authorization", "ApiKey " + token)
@@ -154,15 +157,15 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             .build();
 
         java.util.List<DashboardSummary> dashboards;
-        try (HttpClient client = new HttpClient(runContext, httpConfig)) {
-            HttpResponse<String> response = client.request(request, String.class);
+        try (var client = new HttpClient(runContext, httpConfig)) {
+            var response = client.request(request, String.class);
             if (response.getStatus().getCode() >= 400) {
                 logger.warn("Lightdash trigger request failed with status {}: {}", response.getStatus().getCode(), response.getBody());
                 return Optional.empty();
             }
 
-            JsonNode root = MAPPER.readTree(response.getBody());
-            JsonNode resultsNode = root.has("results") ? root.get("results") : root;
+            var root = MAPPER.readTree(response.getBody());
+            var resultsNode = root.has("results") ? root.get("results") : root;
             dashboards = MAPPER.convertValue(resultsNode, new TypeReference<java.util.List<DashboardSummary>>() {});
         }
 
@@ -171,16 +174,16 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         }
 
         var kvStore = runContext.namespaceKv(context.getNamespace());
-        String flowId = context.getFlowId() != null ? context.getFlowId() : "default";
-        String triggerId = this.getId() != null ? this.getId() : "lightdash";
-        String stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_" + triggerId + "_" + sha256Hex(renderedProjectUuid);
+        var flowId = context.getFlowId() != null ? context.getFlowId() : "default";
+        var triggerId = this.getId() != null ? this.getId() : "lightdash";
+        var stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_" + triggerId + "_" + sha256Hex(renderedProjectUuid);
 
         Instant watermark = null;
         try {
             var kvVal = kvStore.getValue(stateKey);
             if (kvVal.isPresent() && kvVal.get().value() != null) {
-                Object val = kvVal.get().value();
-                String raw = val instanceof byte[] b ? new String(b, StandardCharsets.UTF_8) : val.toString();
+                var val = kvVal.get().value();
+                var raw = val instanceof byte[] b ? new String(b, StandardCharsets.UTF_8) : val.toString();
                 watermark = Instant.parse(raw);
             }
         } catch (Exception e) {
@@ -188,7 +191,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         }
 
         // Find the latest updatedAt among current dashboards
-        Instant maxCurrent = dashboards.stream()
+        var maxCurrent = dashboards.stream()
             .map(DashboardSummary::getUpdatedAt)
             .filter(Objects::nonNull)
             .map(this::parseInstantSafe)
@@ -209,8 +212,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             return Optional.empty();
         }
 
-        final Instant currentWatermark = watermark;
-        java.util.List<DashboardSummary> newlyUpdated = dashboards.stream()
+        final var currentWatermark = watermark;
+        var newlyUpdated = dashboards.stream()
             .filter(d -> {
                 Instant upd = parseInstantSafe(d.getUpdatedAt());
                 return upd != null && upd.isAfter(currentWatermark);
@@ -222,7 +225,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             return Optional.empty();
         }
 
-        Instant newWatermark = parseInstantSafe(newlyUpdated.get(newlyUpdated.size() - 1).getUpdatedAt());
+        var newWatermark = parseInstantSafe(newlyUpdated.get(newlyUpdated.size() - 1).getUpdatedAt());
         if (newWatermark != null && newWatermark.isAfter(currentWatermark)) {
             kvStore.put(
                 stateKey,
@@ -233,8 +236,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
             );
         }
 
-        DashboardSummary primary = newlyUpdated.get(0);
-        Output output = Output.builder()
+        var primary = newlyUpdated.get(0);
+        var output = Output.builder()
             .dashboardUuid(primary.getUuid())
             .dashboardName(primary.getName())
             .updatedAt(primary.getUpdatedAt())

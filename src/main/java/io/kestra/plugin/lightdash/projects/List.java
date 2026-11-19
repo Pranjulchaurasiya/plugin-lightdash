@@ -43,7 +43,7 @@ public class List extends AbstractLightdashTask implements RunnableTask<List.Out
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        java.util.List<ProjectSummary> projects = requestResults(
+        var projects = requestResults(
             runContext,
             "GET",
             "org/projects",

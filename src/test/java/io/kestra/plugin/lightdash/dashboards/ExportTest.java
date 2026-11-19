@@ -4,7 +4,6 @@ import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
@@ -15,6 +14,7 @@ import java.util.Map;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @KestraTest
 @WireMockTest
@@ -54,16 +54,16 @@ class ExportTest {
                 .willReturn(okJson(EXPORT_JSON))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        Export task = Export.builder()
+        var task = Export.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-api-token"))
             .projectUuid(Property.ofValue("proj-123"))
             .dashboardUuid(Property.ofValue("dash-export-1"))
             .build();
 
-        Export.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output, notNullValue());
         assertThat(output.getDashboard(), notNullValue());
@@ -71,8 +71,36 @@ class ExportTest {
         assertThat(output.getDashboard().get("name"), is("Full Analytics Dashboard"));
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> tiles = (List<Map<String, Object>>) output.getDashboard().get("tiles");
+        var tiles = (List<Map<String, Object>>) output.getDashboard().get("tiles");
         assertThat(tiles, hasSize(1));
         assertThat(tiles.get(0).get("uuid"), is("tile-1"));
+    }
+
+    @Test
+    void missingProjectUuidThrowsIllegalArgumentException() {
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = Export.builder()
+            .url(Property.ofValue("http://localhost:8080"))
+            .apiToken(Property.ofValue("test-token"))
+            .dashboardUuid(Property.ofValue("dash-1"))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("`projectUuid` is required"));
+    }
+
+    @Test
+    void missingDashboardUuidThrowsIllegalArgumentException() {
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = Export.builder()
+            .url(Property.ofValue("http://localhost:8080"))
+            .apiToken(Property.ofValue("test-token"))
+            .projectUuid(Property.ofValue("proj-1"))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("`dashboardUuid` is required"));
     }
 }

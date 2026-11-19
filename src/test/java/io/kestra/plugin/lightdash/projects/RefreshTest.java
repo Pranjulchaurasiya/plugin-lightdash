@@ -4,7 +4,6 @@ import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
 import io.kestra.core.models.property.Property;
-import io.kestra.core.runners.RunContext;
 import io.kestra.core.runners.RunContextFactory;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
@@ -55,9 +54,9 @@ class RefreshTest {
                     """))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        Refresh task = Refresh.builder()
+        var task = Refresh.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-token"))
             .projectUuid(Property.ofValue("proj-123"))
@@ -65,7 +64,7 @@ class RefreshTest {
             .pollInterval(Property.ofValue(Duration.ofMillis(50)))
             .build();
 
-        Refresh.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getJobUuid(), is("job-abc-456"));
         assertThat(output.getStatus(), is("completed"));
@@ -87,16 +86,16 @@ class RefreshTest {
                     """))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        Refresh task = Refresh.builder()
+        var task = Refresh.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-token"))
             .projectUuid(Property.ofValue("proj-123"))
             .wait(Property.ofValue(false))
             .build();
 
-        Refresh.Output output = task.run(runContext);
+        var output = task.run(runContext);
 
         assertThat(output.getJobUuid(), is("job-nowait-789"));
         assertThat(output.getStatus(), is("scheduled"));
@@ -132,9 +131,9 @@ class RefreshTest {
                     """))
         );
 
-        RunContext runContext = runContextFactory.of(Map.of());
+        var runContext = runContextFactory.of(Map.of());
 
-        Refresh task = Refresh.builder()
+        var task = Refresh.builder()
             .url(Property.ofValue(wm.getHttpBaseUrl()))
             .apiToken(Property.ofValue("test-token"))
             .projectUuid(Property.ofValue("proj-err"))
@@ -143,5 +142,60 @@ class RefreshTest {
             .build();
 
         assertThrows(IllegalStateException.class, () -> task.run(runContext));
+    }
+
+    @Test
+    void refreshTimeoutThrowsException(WireMockRuntimeInfo wm) {
+        stubFor(
+            post(urlEqualTo("/api/v1/projects/proj-timeout/refresh"))
+                .willReturn(okJson("""
+                    {
+                      "status": "ok",
+                      "results": {
+                        "jobUuid": "job-timeout-222"
+                      }
+                    }
+                    """))
+        );
+
+        stubFor(
+            get(urlEqualTo("/api/v1/schedulers/job/job-timeout-222/status"))
+                .willReturn(okJson("""
+                    {
+                      "status": "ok",
+                      "results": {
+                        "jobUuid": "job-timeout-222",
+                        "status": "running"
+                      }
+                    }
+                    """))
+        );
+
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = Refresh.builder()
+            .url(Property.ofValue(wm.getHttpBaseUrl()))
+            .apiToken(Property.ofValue("test-token"))
+            .projectUuid(Property.ofValue("proj-timeout"))
+            .wait(Property.ofValue(true))
+            .pollInterval(Property.ofValue(Duration.ofMillis(30)))
+            .maxWait(Property.ofValue(Duration.ofMillis(100)))
+            .build();
+
+        var ex = assertThrows(IllegalStateException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("Timed out waiting for Lightdash refresh job"));
+    }
+
+    @Test
+    void missingProjectUuidThrowsIllegalArgumentException() {
+        var runContext = runContextFactory.of(Map.of());
+
+        var task = Refresh.builder()
+            .url(Property.ofValue("http://localhost:8080"))
+            .apiToken(Property.ofValue("test-token"))
+            .build();
+
+        var ex = assertThrows(IllegalArgumentException.class, () -> task.run(runContext));
+        assertThat(ex.getMessage(), containsString("`projectUuid` is required"));
     }
 }

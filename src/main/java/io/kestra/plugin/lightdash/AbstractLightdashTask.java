@@ -6,6 +6,7 @@ import io.kestra.core.exceptions.IllegalVariableEvaluationException;
 import io.kestra.core.http.HttpRequest;
 import io.kestra.core.http.HttpResponse;
 import io.kestra.core.http.client.HttpClient;
+import io.kestra.core.http.client.HttpClientResponseException;
 import io.kestra.core.http.client.configurations.HttpConfiguration;
 import io.kestra.core.http.client.configurations.TimeoutConfiguration;
 import io.kestra.core.models.annotations.PluginProperty;
@@ -63,7 +64,8 @@ public abstract class AbstractLightdashTask extends Task {
      * Resolves the normalized base API URI (e.g. `https://app.lightdash.cloud/api/v1/`).
      */
     protected URI resolveBaseApiUri(RunContext runContext) throws IllegalVariableEvaluationException {
-        String rawUrl = runContext.render(this.url).as(String.class).orElse("https://app.lightdash.cloud").trim();
+        var rawUrl = runContext.render(this.url).as(String.class)
+            .orElse("https://app.lightdash.cloud").trim();
         while (rawUrl.endsWith("/")) {
             rawUrl = rawUrl.substring(0, rawUrl.length() - 1);
         }
@@ -82,30 +84,31 @@ public abstract class AbstractLightdashTask extends Task {
         String endpointPath,
         Object body
     ) throws Exception {
-        URI baseUri = resolveBaseApiUri(runContext);
+        var baseUri = resolveBaseApiUri(runContext);
         URI fullUri;
         if (endpointPath.startsWith("/api/") || endpointPath.startsWith("api/")) {
-            String path = endpointPath.startsWith("/") ? endpointPath : "/" + endpointPath;
-            String rootUrl = baseUri.toString().replaceAll("/api/v[12]/$", "");
+            var path = endpointPath.startsWith("/") ? endpointPath : "/" + endpointPath;
+            var rootUrl = baseUri.toString().replaceAll("/api/v[12]/$", "");
             fullUri = URI.create(rootUrl + path);
         } else {
-            String resolvedPath = endpointPath.startsWith("/") ? endpointPath.substring(1) : endpointPath;
+            var resolvedPath = endpointPath.startsWith("/") ? endpointPath.substring(1) : endpointPath;
             fullUri = baseUri.resolve(resolvedPath);
         }
 
-        String token = runContext.render(this.apiToken).as(String.class).orElseThrow();
-        Duration reqTimeout = runContext.render(this.timeout).as(Duration.class).orElse(Duration.ofSeconds(30));
+        var token = runContext.render(this.apiToken).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`apiToken` is required for Lightdash tasks."));
+        var reqTimeout = runContext.render(this.timeout).as(Duration.class).orElse(Duration.ofSeconds(30));
 
-        TimeoutConfiguration timeoutConfig = TimeoutConfiguration.builder()
+        var timeoutConfig = TimeoutConfiguration.builder()
             .connectTimeout(Property.ofValue(reqTimeout))
             .readIdleTimeout(Property.ofValue(reqTimeout))
             .build();
 
-        HttpConfiguration httpConfig = HttpConfiguration.builder()
+        var httpConfig = HttpConfiguration.builder()
             .timeout(timeoutConfig)
             .build();
 
-        HttpRequest.HttpRequestBuilder reqBuilder = HttpRequest.builder()
+        var reqBuilder = HttpRequest.builder()
             .uri(fullUri)
             .method(method)
             .addHeader("Authorization", "ApiKey " + token)
@@ -116,22 +119,44 @@ public abstract class AbstractLightdashTask extends Task {
             if (body instanceof String strBody) {
                 reqBuilder.body(HttpRequest.StringRequestBody.builder().content(strBody).build());
             } else {
-                String jsonBody = JacksonMapper.ofJson().writeValueAsString(body);
+                var jsonBody = JacksonMapper.ofJson().writeValueAsString(body);
                 reqBuilder.body(HttpRequest.StringRequestBody.builder().content(jsonBody).build());
             }
         }
 
-        HttpRequest request = reqBuilder.build();
+        var request = reqBuilder.build();
 
-        try (HttpClient client = new HttpClient(runContext, httpConfig)) {
-            HttpResponse<String> response = client.request(request, String.class);
-            String responseBody = response.getBody();
+        try (var client = new HttpClient(runContext, httpConfig)) {
+            HttpResponse<String> response;
+            try {
+                response = client.request(request, String.class);
+            } catch (HttpClientResponseException e) {
+                var resp = e.getResponse();
+                var statusCode = resp != null && resp.getStatus() != null ? resp.getStatus().getCode() : 0;
+                var errorBody = resp != null && resp.getBody() != null ? resp.getBody().toString() : "";
 
+                var errorMsg = switch (statusCode) {
+                    case 401 -> "Lightdash authentication failed (401 Unauthorized). Please verify that your `apiToken` is valid and active.";
+                    case 403 -> "Lightdash permission denied (403 Forbidden). Ensure your personal access token has access to this project or resource.";
+                    case 404 -> "Lightdash resource not found (404 Not Found) at " + fullUri + ". Verify your `projectUuid`, `chartUuid`, or `dashboardUuid`.";
+                    default -> "Lightdash API request to " + fullUri + " failed with status " + statusCode + (errorBody.isEmpty() ? "" : ": " + errorBody);
+                };
+                throw new IllegalStateException(errorMsg, e);
+            }
+
+            var responseBody = response.getBody();
             if (response.getStatus().getCode() >= 400) {
-                throw new IllegalStateException(
-                    "Lightdash API request to " + fullUri + " failed with status " + response.getStatus().getCode() +
-                    ": " + responseBody
-                );
+                var errorMsg = switch (response.getStatus().getCode()) {
+                    case 401 -> "Lightdash authentication failed (401 Unauthorized). Please verify that your `apiToken` is valid and active.";
+                    case 403 -> "Lightdash permission denied (403 Forbidden). Ensure your personal access token has access to this project or resource.";
+                    case 404 -> "Lightdash resource not found (404 Not Found) at " + fullUri + ". Verify your `projectUuid`, `chartUuid`, or `dashboardUuid`.";
+                    default -> "Lightdash API request to " + fullUri + " failed with status " + response.getStatus().getCode() + ": " + responseBody;
+                };
+                throw new IllegalStateException(errorMsg);
+            }
+
+            if (responseBody == null || responseBody.isBlank()) {
+                throw new IllegalStateException("Empty response body received from Lightdash API during " + method + " " + fullUri);
             }
 
             return responseBody;
@@ -148,17 +173,17 @@ public abstract class AbstractLightdashTask extends Task {
         Object body,
         Class<T> responseType
     ) throws Exception {
-        String responseBody = executeRequest(runContext, method, endpointPath, body);
+        var responseBody = executeRequest(runContext, method, endpointPath, body);
         if (responseType == Void.class || responseBody == null || responseBody.isBlank()) {
             return null;
         }
 
-        JsonNode rootNode = JacksonMapper.ofJson().readTree(responseBody);
+        var rootNode = JacksonMapper.ofJson().readTree(responseBody);
         if (rootNode.has("status") && !"ok".equalsIgnoreCase(rootNode.get("status").asText())) {
             throw new IllegalStateException("Lightdash API responded with non-ok status: " + responseBody);
         }
 
-        JsonNode resultsNode = rootNode.has("results") ? rootNode.get("results") : rootNode;
+        var resultsNode = rootNode.has("results") ? rootNode.get("results") : rootNode;
         return JacksonMapper.ofJson().treeToValue(resultsNode, responseType);
     }
 
@@ -172,17 +197,17 @@ public abstract class AbstractLightdashTask extends Task {
         Object body,
         TypeReference<T> typeRef
     ) throws Exception {
-        String responseBody = executeRequest(runContext, method, endpointPath, body);
+        var responseBody = executeRequest(runContext, method, endpointPath, body);
         if (responseBody == null || responseBody.isBlank()) {
             return null;
         }
 
-        JsonNode rootNode = JacksonMapper.ofJson().readTree(responseBody);
+        var rootNode = JacksonMapper.ofJson().readTree(responseBody);
         if (rootNode.has("status") && !"ok".equalsIgnoreCase(rootNode.get("status").asText())) {
             throw new IllegalStateException("Lightdash API responded with non-ok status: " + responseBody);
         }
 
-        JsonNode resultsNode = rootNode.has("results") ? rootNode.get("results") : rootNode;
+        var resultsNode = rootNode.has("results") ? rootNode.get("results") : rootNode;
         return JacksonMapper.ofJson().convertValue(resultsNode, typeRef);
     }
 
@@ -196,7 +221,7 @@ public abstract class AbstractLightdashTask extends Task {
         Object body,
         Class<T> responseType
     ) throws Exception {
-        String responseBody = executeRequest(runContext, method, endpointPath, body);
+        var responseBody = executeRequest(runContext, method, endpointPath, body);
         if (responseType == Void.class || responseBody == null || responseBody.isBlank()) {
             return null;
         }

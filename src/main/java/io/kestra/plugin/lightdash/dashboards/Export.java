@@ -67,8 +67,10 @@ public class Export extends AbstractLightdashTask implements RunnableTask<Export
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedProjectUuid = runContext.render(this.projectUuid).as(String.class).orElseThrow();
-        String renderedDashboardUuid = runContext.render(this.dashboardUuid).as(String.class).orElseThrow();
+        var renderedProjectUuid = runContext.render(this.projectUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Export dashboard task."));
+        var renderedDashboardUuid = runContext.render(this.dashboardUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`dashboardUuid` is required for Export dashboard task."));
 
         runContext.logger().info(
             "Exporting dashboard '{}' from Lightdash project '{}'",
@@ -76,7 +78,7 @@ public class Export extends AbstractLightdashTask implements RunnableTask<Export
             renderedProjectUuid
         );
 
-        Map<String, Object> dashboard = requestResults(
+        var dashboard = requestResults(
             runContext,
             "GET",
             "api/v2/projects/" + renderedProjectUuid + "/dashboards/" + renderedDashboardUuid,

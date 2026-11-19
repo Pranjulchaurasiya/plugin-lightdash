@@ -3,7 +3,6 @@ package io.kestra.plugin.lightdash.dashboards;
 import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
 import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import io.kestra.core.junit.annotations.KestraTest;
-import io.kestra.core.models.executions.Execution;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.runners.RunContextFactory;
 import io.kestra.core.utils.IdUtils;
@@ -11,8 +10,6 @@ import io.kestra.core.utils.TestsUtils;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -32,7 +29,7 @@ class TriggerTest {
 
     @Test
     void triggerLifecycleWithKvWatermark(WireMockRuntimeInfo wm) throws Exception {
-        String initialDashboardsJson = """
+        var initialDashboardsJson = """
             {
               "status": "ok",
               "results": [
@@ -50,7 +47,7 @@ class TriggerTest {
                 .willReturn(okJson(initialDashboardsJson))
         );
 
-        Trigger trigger = Trigger.builder()
+        var trigger = Trigger.builder()
             .id("lightdash-trigger-" + IdUtils.create())
             .type(Trigger.class.getName())
             .url(Property.ofValue(wm.getHttpBaseUrl()))
@@ -61,15 +58,15 @@ class TriggerTest {
         var context = TestsUtils.mockTrigger(runContextFactory, trigger);
 
         // 1. First poll initializes watermark to 2026-11-16T10:00:00.000Z, returns empty
-        Optional<Execution> eval1 = trigger.evaluate(context.getKey(), context.getValue());
+        var eval1 = trigger.evaluate(context.getKey(), context.getValue());
         assertThat(eval1.isPresent(), is(false));
 
         // 2. Second poll without changes returns empty
-        Optional<Execution> eval2 = trigger.evaluate(context.getKey(), context.getValue());
+        var eval2 = trigger.evaluate(context.getKey(), context.getValue());
         assertThat(eval2.isPresent(), is(false));
 
         // 3. New dashboard updated at 2026-11-16T10:30:00.000Z
-        String updatedDashboardsJson = """
+        var updatedDashboardsJson = """
             {
               "status": "ok",
               "results": [
@@ -93,9 +90,9 @@ class TriggerTest {
         );
 
         // Third poll fires for dash-2
-        Optional<Execution> eval3 = trigger.evaluate(context.getKey(), context.getValue());
+        var eval3 = trigger.evaluate(context.getKey(), context.getValue());
         assertThat(eval3.isPresent(), is(true));
-        Execution execution = eval3.get();
+        var execution = eval3.get();
         assertThat(execution.getTrigger(), notNullValue());
         assertThat(execution.getTrigger().getVariables(), notNullValue());
         assertThat(execution.getTrigger().getVariables().get("count"), is(1));

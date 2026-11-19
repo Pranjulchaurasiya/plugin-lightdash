@@ -5,6 +5,7 @@ import io.kestra.core.models.annotations.Plugin;
 import io.kestra.core.models.annotations.PluginProperty;
 import io.kestra.core.models.property.Property;
 import io.kestra.core.models.tasks.RunnableTask;
+import io.kestra.core.models.tasks.common.FetchType;
 import io.kestra.core.runners.RunContext;
 import io.kestra.core.serializers.FileSerde;
 import io.kestra.plugin.lightdash.AbstractLightdashTask;
@@ -90,12 +91,13 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
 
     @Override
     public Output run(RunContext runContext) throws Exception {
-        String renderedChartUuid = runContext.render(this.chartUuid).as(String.class).orElseThrow();
-        FetchType type = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
+        var renderedChartUuid = runContext.render(this.chartUuid).as(String.class)
+            .orElseThrow(() -> new IllegalArgumentException("`chartUuid` is required for Run chart task."));
+        var type = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
 
         runContext.logger().info("Executing query for Lightdash chart '{}' with fetchType={}", renderedChartUuid, type);
 
-        QueryResult queryResult = requestResults(
+        var queryResult = requestResults(
             runContext,
             "POST",
             "saved/" + renderedChartUuid + "/results",
@@ -103,14 +105,14 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
             QueryResult.class
         );
 
-        List<Map<String, Object>> rows = queryResult != null && queryResult.getRows() != null
+        var rows = queryResult != null && queryResult.getRows() != null
             ? queryResult.getRows()
-            : List.of();
+            : List.<Map<String, Object>>of();
 
-        long rowCount = rows.size();
+        var rowCount = (long) rows.size();
         runContext.logger().info("Received {} row(s) for chart '{}'.", rowCount, renderedChartUuid);
 
-        Output.OutputBuilder builder = Output.builder()
+        var builder = Output.builder()
             .size(rowCount)
             .cacheMetadata(queryResult != null ? queryResult.getCacheMetadata() : null)
             .metricQuery(queryResult != null ? queryResult.getMetricQuery() : null);
@@ -123,24 +125,18 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
             }
             case FETCH -> builder.rows(rows);
             case STORE -> {
-                File tempFile = runContext.workingDir().createTempFile(".ion").toFile();
-                try (OutputStream outputStream = new BufferedOutputStream(new FileOutputStream(tempFile))) {
-                    for (Map<String, Object> row : rows) {
+                var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
+                try (var outputStream = new BufferedOutputStream(new FileOutputStream(tempFile))) {
+                    for (var row : rows) {
                         FileSerde.write(outputStream, row);
                     }
                 }
-                URI storageUri = runContext.storage().putFile(tempFile);
+                var storageUri = runContext.storage().putFile(tempFile);
                 builder.uri(storageUri);
             }
         }
 
         return builder.build();
-    }
-
-    public enum FetchType {
-        FETCH,
-        FETCH_ONE,
-        STORE
     }
 
     @Builder
