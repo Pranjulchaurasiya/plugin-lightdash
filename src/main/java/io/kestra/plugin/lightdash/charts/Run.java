@@ -76,6 +76,8 @@ import java.util.concurrent.atomic.AtomicReference;
 )
 public class Run extends AbstractLightdashTask implements RunnableTask<Run.Output> {
 
+    private static final int RESULTS_PAGE_SIZE = 500;
+
     @Schema(
         title = "Project UUID",
         description = """
@@ -106,7 +108,7 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
     @Schema(
         title = "Polling interval",
         description = """
-            Interval between consecutive query result polling requests."""
+            Interval between consecutive query result polling requests. Defaults to `PT0.5S` (500 ms). Must be positive."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
@@ -115,7 +117,7 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
     @Schema(
         title = "Maximum wait duration",
         description = """
-            Maximum time to wait for the query to finish executing before timing out."""
+            Maximum time to wait for the query to finish executing before timing out. Defaults to `PT5M` (5 minutes). Must be positive."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
@@ -133,16 +135,23 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
     @Builder.Default
     private final AtomicBoolean isKilled = new AtomicBoolean(false);
 
+    private void cancelQuietly(RunContext runContext, String queryUuid) {
+        var action = killable.get();
+        if (action != null) {
+            try {
+                action.run();
+            } catch (Exception e) {
+                if (runContext != null) {
+                    runContext.logger().warn("Failed to cancel Lightdash query '{}': {}", queryUuid, e.getMessage());
+                }
+            }
+        }
+    }
+
     @Override
     public void kill() {
         if (isKilled.compareAndSet(false, true)) {
-            var action = killable.get();
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Exception ignored) {
-                }
-            }
+            cancelQuietly(null, null);
         }
     }
 
@@ -155,6 +164,13 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
         var type = runContext.render(this.fetchType).as(FetchType.class).orElse(FetchType.FETCH);
         var interval = runContext.render(this.pollInterval).as(Duration.class).orElse(Duration.ofMillis(500));
         var maxTimeout = runContext.render(this.maxWait).as(Duration.class).orElse(Duration.ofMinutes(5));
+
+        if (interval.isNegative() || interval.isZero()) {
+            throw new IllegalArgumentException("`pollInterval` must be positive.");
+        }
+        if (maxTimeout.isNegative() || maxTimeout.isZero()) {
+            throw new IllegalArgumentException("`maxWait` must be positive.");
+        }
 
         runContext.logger().info("Executing saved chart query for Lightdash chart '{}' in project '{}' with fetchType={}", rChartUuid, rProjectUuid, type);
 
@@ -188,13 +204,7 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
         runContext.logger().debug("Started async query with queryUuid '{}'", queryUuid);
 
         if (isKilled.get()) {
-            var action = killable.get();
-            if (action != null) {
-                try {
-                    action.run();
-                } catch (Exception ignored) {
-                }
-            }
+            cancelQuietly(runContext, queryUuid);
             throw new IllegalStateException("Task was killed while starting Lightdash chart query '" + queryUuid + "'");
         }
 
@@ -209,7 +219,7 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
             var getResult = requestResults(
                 runContext,
                 "GET",
-                "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid,
+                "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid + "?page=1&pageSize=" + RESULTS_PAGE_SIZE,
                 null,
                 new TypeReference<Map<String, Object>>() {}
             );
@@ -279,7 +289,7 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
                 currentPageResults = requestResults(
                     runContext,
                     "GET",
-                    "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid + "?page=" + nextPage + "&pageSize=500",
+                    "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid + "?page=" + nextPage + "&pageSize=" + RESULTS_PAGE_SIZE,
                     null,
                     new TypeReference<Map<String, Object>>() {}
                 );
@@ -293,9 +303,12 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
 
         runContext.logger().info("Received and flattened {} row(s) for chart '{}'.", totalRowCount, rChartUuid);
 
+        var totalResultsObj = queryResults.get("totalResults");
+        long size = totalResultsObj instanceof Number num ? num.longValue() : totalRowCount;
+
         var builder = Output.builder()
             .queryUuid(queryUuid)
-            .size(totalRowCount);
+            .size(size);
 
         switch (type) {
             case FETCH_ONE -> {

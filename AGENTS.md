@@ -30,12 +30,12 @@ Single-module Kestra plugin communicating with the Lightdash REST API via Kestra
     - `List`: Lists all projects within the authenticated organization.
     - `Refresh`: Triggers a dbt compilation / cache refresh for a project (`POST /api/v1/projects/{projectUuid}/refresh`) with optional job status polling (`GET /api/v1/schedulers/job/{jobId}/status`).
   - `io.kestra.plugin.lightdash.charts`:
-    - `List`: Lists all saved charts and visualizations within a project or space.
+    - `List`: Lists all saved charts and visualizations within a project.
     - `Run`: Executes a saved chart query using the v2 async API (`POST /api/v2/projects/{projectUuid}/query/chart` and `GET /api/v2/projects/{projectUuid}/query/{queryUuid}`), flattening `ResultRow = Record<string, { value: { raw, formatted } }>` into scalar maps for Pebble usability (`FETCH`, `FETCH_ONE`, or streaming to Kestra storage via `STORE`).
   - `io.kestra.plugin.lightdash.dashboards`:
     - `List`: Lists all dashboards in a project.
     - `Get`: Retrieves the full dashboard JSON definition, tiles, filters, and metadata (`GET /api/v2/projects/{projectUuid}/dashboards/{dashboardUuidOrSlug}`).
-    - `Trigger`: Real-time polling trigger detecting created or modified dashboards using namespace KV store watermarks.
+    - `Trigger`: Polling trigger detecting created or modified dashboards using namespace KV store watermarks.
 
 ### Project Structure
 
@@ -54,7 +54,9 @@ plugin-lightdash/
 │   │   └── Trigger.java
 │   ├── models/
 │   │   ├── ChartSummary.java
-│   │   └── DashboardSummary.java
+│   │   ├── DashboardSummary.java
+│   │   ├── JobStatus.java
+│   │   └── ProjectSummary.java
 │   └── projects/
 │       ├── List.java
 │       └── Refresh.java

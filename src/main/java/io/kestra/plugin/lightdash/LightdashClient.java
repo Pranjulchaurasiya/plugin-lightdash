@@ -62,6 +62,9 @@ public final class LightdashClient {
         var token = runContext.render(apiTokenProp).as(String.class)
             .orElseThrow(() -> new IllegalArgumentException("`apiToken` is required for Lightdash API access."));
         var reqTimeout = runContext.render(timeoutProp).as(Duration.class).orElse(Duration.ofSeconds(30));
+        if (reqTimeout.isNegative() || reqTimeout.isZero()) {
+            throw new IllegalArgumentException("`requestTimeout` must be positive.");
+        }
 
         var timeoutConfig = TimeoutConfiguration.builder()
             .connectTimeout(Property.ofValue(reqTimeout))

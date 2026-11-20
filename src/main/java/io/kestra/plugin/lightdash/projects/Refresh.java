@@ -75,7 +75,7 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
     @Schema(
         title = "Polling interval",
         description = """
-            Interval between consecutive job status poll requests."""
+            Interval between consecutive job status poll requests. Defaults to `PT2S` (2 seconds). Must be positive."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
@@ -84,7 +84,7 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
     @Schema(
         title = "Maximum wait duration",
         description = """
-            Maximum time to wait for the refresh job to complete before timing out."""
+            Maximum time to wait for the refresh job to complete before timing out. Defaults to `PT10M` (10 minutes). Must be positive."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
@@ -97,6 +97,13 @@ public class Refresh extends AbstractLightdashTask implements RunnableTask<Refre
         var shouldWait = runContext.render(this.wait).as(Boolean.class).orElse(true);
         var interval = runContext.render(this.pollInterval).as(Duration.class).orElse(Duration.ofSeconds(2));
         var maxTimeout = runContext.render(this.maxWait).as(Duration.class).orElse(Duration.ofMinutes(10));
+
+        if (interval.isNegative() || interval.isZero()) {
+            throw new IllegalArgumentException("`pollInterval` must be positive.");
+        }
+        if (maxTimeout.isNegative() || maxTimeout.isZero()) {
+            throw new IllegalArgumentException("`maxWait` must be positive.");
+        }
 
         runContext.logger().info("Triggering refresh for Lightdash project '{}'", rProjectUuid);
 

@@ -23,9 +23,11 @@ import lombok.experimental.SuperBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -62,15 +64,23 @@ public class Trigger extends AbstractTrigger
 
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
 
-    @Schema(title = "Lightdash instance base URL", description = """
-            The base URL of your Lightdash instance, e.g. `https://app.lightdash.cloud`.""")
+    @Schema(
+        title = "Lightdash instance base URL",
+        description = """
+            The base URL of your Lightdash instance, e.g. `https://app.lightdash.cloud`.
+            Can be provided with or without a trailing slash or `/api/v1` path."""
+    )
     @NotNull
     @PluginProperty(group = "connection")
     @Builder.Default
     private Property<String> url = Property.ofValue("https://app.lightdash.cloud");
 
-    @Schema(title = "Lightdash Personal Access Token (API Key)", description = """
-            The Personal Access Token generated from your Lightdash personal settings.""")
+    @Schema(
+        title = "Lightdash Personal Access Token (API Key)",
+        description = """
+            The Personal Access Token generated from your Lightdash personal settings.
+            Passed via the `Authorization: ApiKey <token>` header."""
+    )
     @NotNull
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -80,7 +90,7 @@ public class Trigger extends AbstractTrigger
     @Schema(
         title = "HTTP request timeout",
         description = """
-            The timeout duration for HTTP requests made to the Lightdash API."""
+            The timeout duration for HTTP requests made to the Lightdash API. Defaults to `PT30S` (30 seconds). Must be positive."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
@@ -92,9 +102,13 @@ public class Trigger extends AbstractTrigger
     @PluginProperty(group = "main")
     private Property<String> projectUuid;
 
-    @Schema(title = "Polling interval", description = """
-            The interval between consecutive polls for dashboard modifications.""")
+    @Schema(
+        title = "Polling interval",
+        description = """
+            The interval between consecutive polls for dashboard modifications. Defaults to `PT1M` (1 minute). Must be positive."""
+    )
     @NotNull
+    @PluginProperty(group = "execution")
     @Builder.Default
     private Duration interval = Duration.ofMinutes(1);
 
@@ -120,6 +134,10 @@ public class Trigger extends AbstractTrigger
 
     @Override
     public Optional<Execution> evaluate(ConditionContext conditionContext, TriggerContext context) throws Exception {
+        if (this.interval != null && (this.interval.isNegative() || this.interval.isZero())) {
+            throw new IllegalArgumentException("`interval` must be positive.");
+        }
+
         var runContext = conditionContext.getRunContext();
         var logger = runContext.logger();
 
@@ -216,15 +234,10 @@ public class Trigger extends AbstractTrigger
 
     private static String sha256Hex(String input) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("SHA-256 not available", e);
+            var digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(input.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
         }
     }
 

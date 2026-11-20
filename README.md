@@ -39,7 +39,7 @@
 
 ## Why
 
-- What user problem does this solve? Data teams use dbt with Lightdash for self-serve BI and metrics. When dbt models or upstream data pipelines finish running, teams need an automated way to trigger Lightdash semantic layer compilation, refresh project schemas, query saved charts, and automate dashboard exports.
+- What user problem does this solve? Data teams use dbt with Lightdash for self-serve BI and metrics. When dbt models or upstream data pipelines finish running, teams need an automated way to trigger Lightdash semantic layer compilation, refresh project schemas, query saved charts, and retrieve dashboard definitions.
 - Why would a team adopt this plugin in a workflow? It allows seamless end-to-end orchestration from data ingestion and transformation through to BI layer refresh and alerting in Lightdash.
 - What operational/business outcome does it enable? Eliminates stale BI dashboards by refreshing caches immediately after pipeline runs, provides headless data extraction from saved charts directly into data lakes or internal storage, and enables event-driven workflows when dashboards are updated.
 
