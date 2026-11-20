@@ -35,18 +35,11 @@ import java.util.Optional;
 @EqualsAndHashCode(callSuper = true)
 @Getter
 @NoArgsConstructor
-@Schema(
-    title = "Trigger execution on Lightdash dashboard update",
-    description = """
+@Schema(title = "Trigger execution on Lightdash dashboard update", description = """
         Periodically polls Lightdash for dashboards that have been created or modified in a project,
-        using the namespace KV store to advance an update timestamp watermark for exactly-once firing."""
-)
-@Plugin(
-    examples = {
-        @Example(
-            title = "Trigger a flow whenever a dashboard is modified in Lightdash",
-            full = true,
-            code = """
+        using the namespace KV store to advance an update timestamp watermark for exactly-once firing.""")
+@Plugin(examples = {
+        @Example(title = "Trigger a flow whenever a dashboard is modified in Lightdash", full = true, code = """
                 id: on_dashboard_updated
                 namespace: company.analytics
 
@@ -62,29 +55,22 @@ import java.util.Optional;
                   - id: notify
                     type: io.kestra.plugin.core.log.Log
                     message: "Dashboard updated: {{ trigger.dashboards[0].name }} (UUID: {{ trigger.dashboards[0].uuid }})"
-                """
-        )
-    }
-)
-public class Trigger extends AbstractTrigger implements PollingTriggerInterface, TriggerOutput<Trigger.Output>, LightdashConnection {
+                """)
+})
+public class Trigger extends AbstractTrigger
+        implements PollingTriggerInterface, TriggerOutput<Trigger.Output>, LightdashConnection {
 
     private static final ObjectMapper MAPPER = JacksonMapper.ofJson();
 
-    @Schema(
-        title = "Lightdash instance base URL",
-        description = """
-            The base URL of your Lightdash instance, e.g. `https://app.lightdash.cloud`."""
-    )
+    @Schema(title = "Lightdash instance base URL", description = """
+            The base URL of your Lightdash instance, e.g. `https://app.lightdash.cloud`.""")
     @NotNull
     @PluginProperty(group = "connection")
     @Builder.Default
     private Property<String> url = Property.ofValue("https://app.lightdash.cloud");
 
-    @Schema(
-        title = "Lightdash Personal Access Token (API Key)",
-        description = """
-            The Personal Access Token generated from your Lightdash personal settings."""
-    )
+    @Schema(title = "Lightdash Personal Access Token (API Key)", description = """
+            The Personal Access Token generated from your Lightdash personal settings.""")
     @NotNull
     @PluginProperty(group = "connection", secret = true)
     @ToString.Exclude
@@ -92,28 +78,22 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     private Property<String> apiToken;
 
     @Schema(
-        title = "HTTP client timeout",
+        title = "HTTP request timeout",
         description = """
             The timeout duration for HTTP requests made to the Lightdash API."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
-    private Property<Duration> timeout = Property.ofValue(Duration.ofSeconds(30));
+    private Property<Duration> requestTimeout = Property.ofValue(Duration.ofSeconds(30));
 
-    @Schema(
-        title = "Project UUID",
-        description = """
-            The UUID of the Lightdash project to monitor for dashboard updates."""
-    )
+    @Schema(title = "Project UUID", description = """
+            The UUID of the Lightdash project to monitor for dashboard updates.""")
     @NotNull
     @PluginProperty(group = "main")
     private Property<String> projectUuid;
 
-    @Schema(
-        title = "Polling interval",
-        description = """
-            The interval between consecutive polls for dashboard modifications."""
-    )
+    @Schema(title = "Polling interval", description = """
+            The interval between consecutive polls for dashboard modifications.""")
     @NotNull
     @Builder.Default
     private Duration interval = Duration.ofMinutes(1);
@@ -134,8 +114,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     }
 
     @Override
-    public Property<Duration> getTimeout() {
-        return this.timeout;
+    public Property<Duration> getRequestTimeout() {
+        return this.requestTimeout;
     }
 
     @Override
@@ -144,7 +124,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         var logger = runContext.logger();
 
         var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
-            .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Trigger."));
+                .orElseThrow(() -> new IllegalArgumentException("`projectUuid` is required for Trigger."));
 
         List<DashboardSummary> dashboards;
         try {
@@ -152,7 +132,7 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
                 runContext,
                 this.url,
                 this.apiToken,
-                this.timeout,
+                this.requestTimeout,
                 "GET",
                 "projects/" + rProjectUuid + "/dashboards",
                 null
@@ -160,7 +140,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
 
             var root = MAPPER.readTree(responseBody);
             var resultsNode = root.has("results") ? root.get("results") : root;
-            dashboards = MAPPER.convertValue(resultsNode, new TypeReference<List<DashboardSummary>>() {});
+            dashboards = MAPPER.convertValue(resultsNode, new TypeReference<List<DashboardSummary>>() {
+            });
         } catch (Exception e) {
             logger.warn("Lightdash trigger poll failed for project '{}': {}", rProjectUuid, e.getMessage());
             return Optional.empty();
@@ -173,7 +154,8 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         var kvStore = runContext.namespaceKv(context.getNamespace());
         var flowId = context.getFlowId() != null ? context.getFlowId() : "default";
         var triggerId = this.getId() != null ? this.getId() : "lightdash";
-        var stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_" + triggerId + "_" + sha256Hex(rProjectUuid);
+        var stateKey = "lightdash_watermark_" + flowId.length() + "_" + flowId + "_" + triggerId.length() + "_"
+                + triggerId + "_" + sha256Hex(rProjectUuid);
 
         Instant watermark = null;
         try {
@@ -188,50 +170,47 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
         }
 
         var maxCurrent = dashboards.stream()
-            .map(DashboardSummary::getUpdatedAt)
-            .filter(Objects::nonNull)
-            .max(Comparator.naturalOrder())
-            .orElse(Instant.now());
+                .map(DashboardSummary::getUpdatedAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(Instant.now());
 
         if (watermark == null) {
             kvStore.put(
-                stateKey,
-                new KVValueAndMetadata(
-                    new KVMetadata("Lightdash trigger watermark", (Duration) null),
-                    maxCurrent.toString()
-                )
-            );
+                    stateKey,
+                    new KVValueAndMetadata(
+                            new KVMetadata("Lightdash trigger watermark", (Duration) null),
+                            maxCurrent.toString()));
             logger.info("Initialized Lightdash trigger watermark for project '{}' at {}", rProjectUuid, maxCurrent);
             return Optional.empty();
         }
 
         final var currentWatermark = watermark;
         var newlyUpdated = dashboards.stream()
-            .filter(d -> d.getUpdatedAt() != null && d.getUpdatedAt().isAfter(currentWatermark))
-            .sorted(Comparator.comparing(DashboardSummary::getUpdatedAt))
-            .toList();
+                .filter(d -> d.getUpdatedAt() != null && d.getUpdatedAt().isAfter(currentWatermark))
+                .sorted(Comparator.comparing(DashboardSummary::getUpdatedAt))
+                .toList();
 
         if (newlyUpdated.isEmpty()) {
             return Optional.empty();
         }
 
-        var newWatermark = newlyUpdated.get(newlyUpdated.size() - 1).getUpdatedAt();
+        var newWatermark = newlyUpdated.getLast().getUpdatedAt();
         if (newWatermark != null && newWatermark.isAfter(currentWatermark)) {
             kvStore.put(
-                stateKey,
-                new KVValueAndMetadata(
-                    new KVMetadata("Lightdash trigger watermark", (Duration) null),
-                    newWatermark.toString()
-                )
-            );
+                    stateKey,
+                    new KVValueAndMetadata(
+                            new KVMetadata("Lightdash trigger watermark", (Duration) null),
+                            newWatermark.toString()));
         }
 
         var output = Output.builder()
-            .dashboards(newlyUpdated)
-            .count(newlyUpdated.size())
-            .build();
+                .dashboards(newlyUpdated)
+                .count(newlyUpdated.size())
+                .build();
 
-        logger.info("Lightdash trigger firing: {} modified dashboard(s) found in project '{}'", newlyUpdated.size(), rProjectUuid);
+        logger.info("Lightdash trigger firing: {} modified dashboard(s) found in project '{}'", newlyUpdated.size(),
+                rProjectUuid);
         return Optional.of(TriggerService.generateExecution(this, conditionContext, context, output));
     }
 
@@ -252,18 +231,14 @@ public class Trigger extends AbstractTrigger implements PollingTriggerInterface,
     @Builder
     @Getter
     public static class Output implements io.kestra.core.models.tasks.Output {
-        @Schema(
-            description = """
+        @Schema(description = """
                 The list of all modified dashboards detected in this polling window.
-                """
-        )
+                """)
         private List<DashboardSummary> dashboards;
 
-        @Schema(
-            description = """
+        @Schema(description = """
                 The count of modified dashboards detected.
-                """
-        )
+                """)
         private Integer count;
     }
 }

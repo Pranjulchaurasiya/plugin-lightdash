@@ -45,13 +45,13 @@ public abstract class AbstractLightdashTask extends Task implements LightdashCon
     protected Property<String> apiToken;
 
     @Schema(
-        title = "HTTP client timeout",
+        title = "HTTP request timeout",
         description = """
             The timeout duration for HTTP requests made to the Lightdash API."""
     )
     @PluginProperty(group = "advanced")
     @Builder.Default
-    protected Property<Duration> timeout = Property.ofValue(Duration.ofSeconds(30));
+    protected Property<Duration> requestTimeout = Property.ofValue(Duration.ofSeconds(30));
 
     @Override
     public Property<String> getUrl() {
@@ -64,8 +64,8 @@ public abstract class AbstractLightdashTask extends Task implements LightdashCon
     }
 
     @Override
-    public Property<Duration> getTimeout() {
-        return this.timeout;
+    public Property<Duration> getRequestTimeout() {
+        return this.requestTimeout;
     }
 
     /**
@@ -84,7 +84,7 @@ public abstract class AbstractLightdashTask extends Task implements LightdashCon
         String endpointPath,
         Object body
     ) throws Exception {
-        return LightdashClient.execute(runContext, this.url, this.apiToken, this.timeout, method, endpointPath, body);
+        return LightdashClient.execute(runContext, this.url, this.apiToken, this.requestTimeout, method, endpointPath, body);
     }
 
     /**

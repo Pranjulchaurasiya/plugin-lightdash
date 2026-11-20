@@ -54,7 +54,7 @@ Provides tasks and triggers under `io.kestra.plugin.lightdash`:
   - `charts.Run`: Run saved chart queries with `FETCH`, `FETCH_ONE`, or streaming to Kestra storage (`STORE`).
 - **Dashboards**:
   - `dashboards.List`: List dashboards in a project.
-  - `dashboards.Export`: Export complete dashboard configurations and tile definitions.
+  - `dashboards.Get`: Get complete dashboard configurations and tile definitions.
   - `dashboards.Trigger`: Polling trigger for dashboard updates with namespace KV store watermark tracking.
 
 ## Running Kestra locally with this plugin

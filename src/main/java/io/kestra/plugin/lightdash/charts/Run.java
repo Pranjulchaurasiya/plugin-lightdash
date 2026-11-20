@@ -16,12 +16,15 @@ import lombok.*;
 import lombok.experimental.SuperBuilder;
 
 import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.FileOutputStream;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @SuperBuilder
 @ToString
@@ -118,6 +121,31 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
     @Builder.Default
     private Property<Duration> maxWait = Property.ofValue(Duration.ofMinutes(5));
 
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @Getter(AccessLevel.NONE)
+    @Builder.Default
+    private final AtomicReference<Runnable> killable = new AtomicReference<>();
+
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @Getter(AccessLevel.NONE)
+    @Builder.Default
+    private final AtomicBoolean isKilled = new AtomicBoolean(false);
+
+    @Override
+    public void kill() {
+        if (isKilled.compareAndSet(false, true)) {
+            var action = killable.get();
+            if (action != null) {
+                try {
+                    action.run();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
     @Override
     public Output run(RunContext runContext) throws Exception {
         var rProjectUuid = runContext.render(this.projectUuid).as(String.class)
@@ -143,12 +171,41 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
             throw new IllegalStateException("Failed to obtain queryUuid from Lightdash execute saved chart response: " + execResponse);
         }
 
+        killable.set(() -> {
+            try {
+                requestResults(
+                    runContext,
+                    "POST",
+                    "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid + "/cancel",
+                    Map.of(),
+                    new TypeReference<Map<String, Object>>() {}
+                );
+            } catch (Exception e) {
+                runContext.logger().warn("Failed to cancel Lightdash query '{}': {}", queryUuid, e.getMessage());
+            }
+        });
+
         runContext.logger().debug("Started async query with queryUuid '{}'", queryUuid);
+
+        if (isKilled.get()) {
+            var action = killable.get();
+            if (action != null) {
+                try {
+                    action.run();
+                } catch (Exception ignored) {
+                }
+            }
+            throw new IllegalStateException("Task was killed while starting Lightdash chart query '" + queryUuid + "'");
+        }
 
         var deadline = Instant.now().plus(maxTimeout);
         Map<String, Object> queryResults = null;
 
         while (Instant.now().isBefore(deadline)) {
+            if (isKilled.get()) {
+                throw new IllegalStateException("Task was killed while waiting for Lightdash chart query '" + queryUuid + "'");
+            }
+
             var getResult = requestResults(
                 runContext,
                 "GET",
@@ -163,9 +220,9 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
                 break;
             }
 
-            if ("error".equalsIgnoreCase(status) || "expired".equalsIgnoreCase(status)) {
+            if ("error".equalsIgnoreCase(status) || "expired".equalsIgnoreCase(status) || "cancelled".equalsIgnoreCase(status)) {
                 var errorMsg = getResult != null ? getResult.get("error") : "unknown error";
-                throw new IllegalStateException("Lightdash query '" + queryUuid + "' failed with status '" + status + "': " + errorMsg);
+                throw new IllegalStateException("Lightdash query '" + queryUuid + "' terminated with status '" + status + "': " + errorMsg);
             }
 
             TimeUnit.MILLISECONDS.sleep(interval.toMillis());
@@ -175,31 +232,79 @@ public class Run extends AbstractLightdashTask implements RunnableTask<Run.Outpu
             throw new IllegalStateException("Timed out waiting for Lightdash chart query '" + queryUuid + "' after " + maxTimeout);
         }
 
-        var rawRowsObj = queryResults.get("rows");
-        java.util.List<?> rawRowsList = rawRowsObj instanceof java.util.List<?> list ? list : java.util.List.of();
-        var rows = flattenRows(rawRowsList);
+        File tempFile = null;
+        BufferedOutputStream outputStream = null;
+        if (type == FetchType.STORE) {
+            tempFile = runContext.workingDir().createTempFile(".ion").toFile();
+            outputStream = new BufferedOutputStream(new FileOutputStream(tempFile));
+        }
 
-        var rowCount = (long) rows.size();
-        runContext.logger().info("Received and flattened {} row(s) for chart '{}'.", rowCount, rChartUuid);
+        var allRows = new ArrayList<Map<String, Object>>();
+        long totalRowCount = 0L;
+        Map<String, Object> currentPageResults = queryResults;
+
+        try {
+            while (currentPageResults != null) {
+                if (isKilled.get()) {
+                    throw new IllegalStateException("Task was killed while processing Lightdash chart query '" + queryUuid + "'");
+                }
+
+                var rawRowsObj = currentPageResults.get("rows");
+                java.util.List<?> rawRowsList = rawRowsObj instanceof java.util.List<?> list ? list : java.util.List.of();
+                var pageRows = flattenRows(rawRowsList);
+                totalRowCount += pageRows.size();
+
+                if (type == FetchType.STORE) {
+                    for (var row : pageRows) {
+                        FileSerde.write(outputStream, row);
+                    }
+                } else if (type == FetchType.FETCH) {
+                    allRows.addAll(pageRows);
+                } else if (type == FetchType.FETCH_ONE) {
+                    if (!pageRows.isEmpty()) {
+                        allRows.add(pageRows.getFirst());
+                    }
+                    break;
+                }
+
+                var nextPageObj = currentPageResults.get("nextPage");
+                if (nextPageObj == null || "null".equalsIgnoreCase(nextPageObj.toString().trim()) || nextPageObj.toString().isBlank()) {
+                    break;
+                }
+                int nextPage = nextPageObj instanceof Number num ? num.intValue() : Integer.parseInt(nextPageObj.toString().trim());
+                if (nextPage <= 0) {
+                    break;
+                }
+
+                currentPageResults = requestResults(
+                    runContext,
+                    "GET",
+                    "api/v2/projects/" + rProjectUuid + "/query/" + queryUuid + "?page=" + nextPage + "&pageSize=500",
+                    null,
+                    new TypeReference<Map<String, Object>>() {}
+                );
+            }
+        } finally {
+            if (outputStream != null) {
+                outputStream.flush();
+                outputStream.close();
+            }
+        }
+
+        runContext.logger().info("Received and flattened {} row(s) for chart '{}'.", totalRowCount, rChartUuid);
 
         var builder = Output.builder()
             .queryUuid(queryUuid)
-            .size(rowCount);
+            .size(totalRowCount);
 
         switch (type) {
             case FETCH_ONE -> {
-                if (!rows.isEmpty()) {
-                    builder.row(rows.get(0));
+                if (!allRows.isEmpty()) {
+                    builder.row(allRows.getFirst());
                 }
             }
-            case FETCH -> builder.rows(rows);
+            case FETCH -> builder.rows(allRows);
             case STORE -> {
-                var tempFile = runContext.workingDir().createTempFile(".ion").toFile();
-                try (var outputStream = new BufferedOutputStream(new FileOutputStream(tempFile))) {
-                    for (var row : rows) {
-                        FileSerde.write(outputStream, row);
-                    }
-                }
                 var storageUri = runContext.storage().putFile(tempFile);
                 builder.uri(storageUri);
             }

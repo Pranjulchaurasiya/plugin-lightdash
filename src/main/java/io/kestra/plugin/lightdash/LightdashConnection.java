@@ -9,7 +9,7 @@ public interface LightdashConnection {
 
     Property<String> getApiToken();
 
-    default Property<Duration> getTimeout() {
+    default Property<Duration> getRequestTimeout() {
         return Property.ofValue(Duration.ofSeconds(30));
     }
 }

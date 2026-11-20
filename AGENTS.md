@@ -21,7 +21,7 @@
 Single-module Kestra plugin communicating with the Lightdash REST API via Kestra's core `HttpClient` (`io.kestra.core.http.client.HttpClient`), with zero external HTTP dependencies.
 
 - **Connection & Transport:**
-  - `LightdashConnection`: Interface defining standardized connection properties (`url`, `apiToken`, `timeout`).
+  - `LightdashConnection`: Interface defining standardized connection properties (`url`, `apiToken`, `requestTimeout`).
   - `LightdashClient`: Shared HTTP transport helper handling URL normalization, secret header injection (`Authorization: ApiKey <token>`), request serialization, and unified error mapping.
   - `AbstractLightdashTask`: Abstract base task extending `Task` and implementing `LightdashConnection`.
 
